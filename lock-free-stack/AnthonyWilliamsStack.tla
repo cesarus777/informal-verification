@@ -1,190 +1,288 @@
 ---- MODULE AnthonyWilliamsStack ----
 
 EXTENDS TLC, Sequences, Integers
-
+CONSTANTS NTasks, Producers, Consumers
 (*--algorithm stack
 
 variables
-    StackVar = <<>>,
+    \* primary 0 stands for empty stack to check pop from empty stack
+    Stack = <<0>>,
     MemoryOrderSeqLock = 0,
+    NTasksLeft = NTasks,
+    NTasksPopped = 0
 
 define
     \* invariant
     NoRaceCondition == MemoryOrderSeqLock <= 1
+    StackIsCorrect == Len(Stack) >= 1
     \* temporal property
-    FinishedEmpty == Len(StackVar) = 0
+    EmptyInTheEnd == <>(Len(Stack) = 1 /\ NTasksPopped = NTasks)
 end define;
 
-process worker \in 1..9
-variables
-    HeadPush = "",
-    HeadPop = "",
+macro PushStack(Stack) begin
+    Stack := Append(Stack, Len(Stack));
+end macro;
 
-begin
-Push1:
+macro PopStack(Stack) begin
+    Stack := SubSeq(Stack, 1, Len(Stack) - 1);
+end macro;
+
+procedure Push()
+variables CurrHead;
+begin PushBegin:
     await MemoryOrderSeqLock = 0;
     MemoryOrderSeqLock := MemoryOrderSeqLock + 1;
-    if StackVar /= <<>> then
-        HeadPush := Head(StackVar);
+    if Len(Stack) = 1 then
+        PushStack(Stack);
+        UnlockPush1: MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
+        return;
     else
-        StackVar := Append(StackVar, Len(StackVar));
-        goto PushUnlock2;
+        CurrHead := Head(Stack);
     end if;
-
-PushUnlock1:
-    MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
-
-Push2:
-    \* CAS-loop
-    await MemoryOrderSeqLock = 0;
-
-    if StackVar = <<>> then
-        goto Push1;
-    else
-        if HeadPush = Head(StackVar) then
+    UnlockPush2: MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
+    
+PushCASLoop:
+    while TRUE do
+        await MemoryOrderSeqLock = 0;
+        if Len(Stack) = 1 then
             MemoryOrderSeqLock := MemoryOrderSeqLock + 1;
-            StackVar := Append(StackVar, Len(StackVar));
-        else
-            goto Push2;
+            PushStack(Stack);
+            UnlockPush3: MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
+            return;
+        elsif CurrHead = Head(Stack) then
+            MemoryOrderSeqLock := MemoryOrderSeqLock + 1;
+            PushStack(Stack);
+            UnlockPush4: MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
+            return;
         end if;
-    end if;
+    end while;
+end procedure;
 
-PushUnlock2:
-    MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
-
-Pop1:
+procedure Pop()
+variables CurrHead;
+begin PopBegin:
     await MemoryOrderSeqLock = 0;
     MemoryOrderSeqLock := MemoryOrderSeqLock + 1;
-    if StackVar /= <<>> then
-        HeadPop := Head(StackVar);
-    else
-        goto pop_unlock2;
+    if Len(Stack) = 1 then
+        UnlockPop1: MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
+        goto PopBegin;
     end if;
+    PopLoadCurrHead: CurrHead := Head(Stack);
+    UnlockPop2: MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
 
-PopUnlock1:
-    MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
-
-Pop2:
-    \* CAS-loop
-    await MemoryOrderSeqLock = 0;
-    if StackVar = <<>> then
-        goto Pop1;
-    else
-        if HeadPop = Head(StackVar) then
+PopCASLoop:
+    while TRUE do
+        await MemoryOrderSeqLock = 0;
+        if Len(Stack) = 1 then
+            goto PopCASLoop;
+        elsif CurrHead = Head(Stack) then
             MemoryOrderSeqLock := MemoryOrderSeqLock + 1;
-            StackVar := SubSeq(StackVar, 1, Len(StackVar) - 1);
-        else
-            goto Pop2;
+            PopStack(Stack);
+            UnlockPop3: MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
+            return;
         end if;
-    end if;
+    end while;
+end procedure;
 
-pop_unlock2:
-    MemoryOrderSeqLock := MemoryOrderSeqLock - 1;
-
+process prod \in Producers begin
+Produce:
+    while NTasksLeft > 0 do
+        NTasksLeft := NTasksLeft - 1;
+        call Push();
+    end while;
 end process;
 
+process cons \in Consumers begin
+Consume:
+    while NTasksPopped < NTasks do
+        NTasksPopped := NTasksPopped + 1;
+        await Len(Stack) > 1;
+        call Pop();
+    end while;
+end process;
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "fef3b82a" /\ chksum(tla) = "e516c799")
-VARIABLES StackVar, MemoryOrderSeqLock, pc
+\* BEGIN TRANSLATION (chksum(pcal) = "e82d8c2b" /\ chksum(tla) = "47c9ab2f")
+\* Procedure variable CurrHead of procedure Push at line 31 col 11 changed to CurrHead_
+CONSTANT defaultInitValue
+VARIABLES Stack, MemoryOrderSeqLock, NTasksLeft, NTasksPopped, pc, stack
 
 (* define statement *)
 NoRaceCondition == MemoryOrderSeqLock <= 1
+StackIsCorrect == Len(Stack) >= 1
 
-FinishedEmpty == Len(StackVar) = 0
+EmptyInTheEnd == <>(Len(Stack) = 1 /\ NTasksPopped = NTasks)
 
-VARIABLES HeadPush, HeadPop
+VARIABLES CurrHead_, CurrHead
 
-vars == << StackVar, MemoryOrderSeqLock, pc, HeadPush, HeadPop >>
+vars == << Stack, MemoryOrderSeqLock, NTasksLeft, NTasksPopped, pc, stack, 
+           CurrHead_, CurrHead >>
 
-ProcSet == (1..9)
+ProcSet == (Producers) \cup (Consumers)
 
 Init == (* Global variables *)
-        /\ StackVar = <<>>
+        /\ Stack = <<0>>
         /\ MemoryOrderSeqLock = 0
-        (* Process worker *)
-        /\ HeadPush = [self \in 1..9 |-> ""]
-        /\ HeadPop = [self \in 1..9 |-> ""]
-        /\ pc = [self \in ProcSet |-> "Push1"]
+        /\ NTasksLeft = NTasks
+        /\ NTasksPopped = 0
+        (* Procedure Push *)
+        /\ CurrHead_ = [ self \in ProcSet |-> defaultInitValue]
+        (* Procedure Pop *)
+        /\ CurrHead = [ self \in ProcSet |-> defaultInitValue]
+        /\ stack = [self \in ProcSet |-> << >>]
+        /\ pc = [self \in ProcSet |-> CASE self \in Producers -> "Produce"
+                                        [] self \in Consumers -> "Consume"]
 
-Push1(self) == /\ pc[self] = "Push1"
-               /\ MemoryOrderSeqLock = 0
-               /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
-               /\ IF StackVar /= <<>>
-                     THEN /\ HeadPush' = [HeadPush EXCEPT ![self] = Head(StackVar)]
-                          /\ pc' = [pc EXCEPT ![self] = "PushUnlock1"]
-                          /\ UNCHANGED StackVar
-                     ELSE /\ StackVar' = Append(StackVar, Len(StackVar))
-                          /\ pc' = [pc EXCEPT ![self] = "PushUnlock2"]
-                          /\ UNCHANGED HeadPush
-               /\ UNCHANGED HeadPop
+PushBegin(self) == /\ pc[self] = "PushBegin"
+                   /\ MemoryOrderSeqLock = 0
+                   /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
+                   /\ IF Len(Stack) = 1
+                         THEN /\ Stack' = Append(Stack, Len(Stack))
+                              /\ pc' = [pc EXCEPT ![self] = "UnlockPush1"]
+                              /\ UNCHANGED CurrHead_
+                         ELSE /\ CurrHead_' = [CurrHead_ EXCEPT ![self] = Head(Stack)]
+                              /\ pc' = [pc EXCEPT ![self] = "UnlockPush2"]
+                              /\ Stack' = Stack
+                   /\ UNCHANGED << NTasksLeft, NTasksPopped, stack, CurrHead >>
 
-PushUnlock1(self) == /\ pc[self] = "PushUnlock1"
+UnlockPush1(self) == /\ pc[self] = "UnlockPush1"
                      /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
-                     /\ pc' = [pc EXCEPT ![self] = "Push2"]
-                     /\ UNCHANGED << StackVar, HeadPush, HeadPop >>
+                     /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                     /\ CurrHead_' = [CurrHead_ EXCEPT ![self] = Head(stack[self]).CurrHead_]
+                     /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                     /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, CurrHead >>
 
-Push2(self) == /\ pc[self] = "Push2"
-               /\ MemoryOrderSeqLock = 0
-               /\ IF StackVar = <<>>
-                     THEN /\ pc' = [pc EXCEPT ![self] = "Push1"]
-                          /\ UNCHANGED << StackVar, MemoryOrderSeqLock >>
-                     ELSE /\ IF HeadPush[self] = Head(StackVar)
-                                THEN /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
-                                     /\ StackVar' = Append(StackVar, Len(StackVar))
-                                     /\ pc' = [pc EXCEPT ![self] = "PushUnlock2"]
-                                ELSE /\ pc' = [pc EXCEPT ![self] = "Push2"]
-                                     /\ UNCHANGED << StackVar, 
-                                                     MemoryOrderSeqLock >>
-               /\ UNCHANGED << HeadPush, HeadPop >>
-
-PushUnlock2(self) == /\ pc[self] = "PushUnlock2"
+UnlockPush2(self) == /\ pc[self] = "UnlockPush2"
                      /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
-                     /\ pc' = [pc EXCEPT ![self] = "Pop1"]
-                     /\ UNCHANGED << StackVar, HeadPush, HeadPop >>
+                     /\ pc' = [pc EXCEPT ![self] = "PushCASLoop"]
+                     /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, stack, 
+                                     CurrHead_, CurrHead >>
 
-Pop1(self) == /\ pc[self] = "Pop1"
-              /\ MemoryOrderSeqLock = 0
-              /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
-              /\ IF StackVar /= <<>>
-                    THEN /\ HeadPop' = [HeadPop EXCEPT ![self] = Head(StackVar)]
-                         /\ pc' = [pc EXCEPT ![self] = "PopUnlock1"]
-                    ELSE /\ pc' = [pc EXCEPT ![self] = "pop_unlock2"]
-                         /\ UNCHANGED HeadPop
-              /\ UNCHANGED << StackVar, HeadPush >>
+PushCASLoop(self) == /\ pc[self] = "PushCASLoop"
+                     /\ MemoryOrderSeqLock = 0
+                     /\ IF Len(Stack) = 1
+                           THEN /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
+                                /\ Stack' = Append(Stack, Len(Stack))
+                                /\ pc' = [pc EXCEPT ![self] = "UnlockPush3"]
+                           ELSE /\ IF CurrHead_[self] = Head(Stack)
+                                      THEN /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
+                                           /\ Stack' = Append(Stack, Len(Stack))
+                                           /\ pc' = [pc EXCEPT ![self] = "UnlockPush4"]
+                                      ELSE /\ pc' = [pc EXCEPT ![self] = "PushCASLoop"]
+                                           /\ UNCHANGED << Stack, 
+                                                           MemoryOrderSeqLock >>
+                     /\ UNCHANGED << NTasksLeft, NTasksPopped, stack, 
+                                     CurrHead_, CurrHead >>
 
-PopUnlock1(self) == /\ pc[self] = "PopUnlock1"
+UnlockPush3(self) == /\ pc[self] = "UnlockPush3"
+                     /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
+                     /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                     /\ CurrHead_' = [CurrHead_ EXCEPT ![self] = Head(stack[self]).CurrHead_]
+                     /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                     /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, CurrHead >>
+
+UnlockPush4(self) == /\ pc[self] = "UnlockPush4"
+                     /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
+                     /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                     /\ CurrHead_' = [CurrHead_ EXCEPT ![self] = Head(stack[self]).CurrHead_]
+                     /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                     /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, CurrHead >>
+
+Push(self) == PushBegin(self) \/ UnlockPush1(self) \/ UnlockPush2(self)
+                 \/ PushCASLoop(self) \/ UnlockPush3(self)
+                 \/ UnlockPush4(self)
+
+PopBegin(self) == /\ pc[self] = "PopBegin"
+                  /\ MemoryOrderSeqLock = 0
+                  /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
+                  /\ IF Len(Stack) = 1
+                        THEN /\ pc' = [pc EXCEPT ![self] = "UnlockPop1"]
+                        ELSE /\ pc' = [pc EXCEPT ![self] = "PopLoadCurrHead"]
+                  /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, stack, 
+                                  CurrHead_, CurrHead >>
+
+UnlockPop1(self) == /\ pc[self] = "UnlockPop1"
                     /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
-                    /\ pc' = [pc EXCEPT ![self] = "Pop2"]
-                    /\ UNCHANGED << StackVar, HeadPush, HeadPop >>
+                    /\ pc' = [pc EXCEPT ![self] = "PopBegin"]
+                    /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, stack, 
+                                    CurrHead_, CurrHead >>
 
-Pop2(self) == /\ pc[self] = "Pop2"
-              /\ MemoryOrderSeqLock = 0
-              /\ IF StackVar = <<>>
-                    THEN /\ pc' = [pc EXCEPT ![self] = "Pop1"]
-                         /\ UNCHANGED << StackVar, MemoryOrderSeqLock >>
-                    ELSE /\ IF HeadPop[self] = Head(StackVar)
-                               THEN /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
-                                    /\ StackVar' = SubSeq(StackVar, 1, Len(StackVar) - 1)
-                                    /\ pc' = [pc EXCEPT ![self] = "pop_unlock2"]
-                               ELSE /\ pc' = [pc EXCEPT ![self] = "Pop2"]
-                                    /\ UNCHANGED << StackVar, 
-                                                    MemoryOrderSeqLock >>
-              /\ UNCHANGED << HeadPush, HeadPop >>
+PopLoadCurrHead(self) == /\ pc[self] = "PopLoadCurrHead"
+                         /\ CurrHead' = [CurrHead EXCEPT ![self] = Head(Stack)]
+                         /\ pc' = [pc EXCEPT ![self] = "UnlockPop2"]
+                         /\ UNCHANGED << Stack, MemoryOrderSeqLock, NTasksLeft, 
+                                         NTasksPopped, stack, CurrHead_ >>
 
-pop_unlock2(self) == /\ pc[self] = "pop_unlock2"
-                     /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
-                     /\ pc' = [pc EXCEPT ![self] = "Done"]
-                     /\ UNCHANGED << StackVar, HeadPush, HeadPop >>
+UnlockPop2(self) == /\ pc[self] = "UnlockPop2"
+                    /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
+                    /\ pc' = [pc EXCEPT ![self] = "PopCASLoop"]
+                    /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, stack, 
+                                    CurrHead_, CurrHead >>
 
-worker(self) == Push1(self) \/ PushUnlock1(self) \/ Push2(self)
-                   \/ PushUnlock2(self) \/ Pop1(self) \/ PopUnlock1(self)
-                   \/ Pop2(self) \/ pop_unlock2(self)
+PopCASLoop(self) == /\ pc[self] = "PopCASLoop"
+                    /\ MemoryOrderSeqLock = 0
+                    /\ IF Len(Stack) = 1
+                          THEN /\ pc' = [pc EXCEPT ![self] = "PopCASLoop"]
+                               /\ UNCHANGED << Stack, MemoryOrderSeqLock >>
+                          ELSE /\ IF CurrHead[self] = Head(Stack)
+                                     THEN /\ MemoryOrderSeqLock' = MemoryOrderSeqLock + 1
+                                          /\ Stack' = SubSeq(Stack, 1, Len(Stack) - 1)
+                                          /\ pc' = [pc EXCEPT ![self] = "UnlockPop3"]
+                                     ELSE /\ pc' = [pc EXCEPT ![self] = "PopCASLoop"]
+                                          /\ UNCHANGED << Stack, 
+                                                          MemoryOrderSeqLock >>
+                    /\ UNCHANGED << NTasksLeft, NTasksPopped, stack, CurrHead_, 
+                                    CurrHead >>
+
+UnlockPop3(self) == /\ pc[self] = "UnlockPop3"
+                    /\ MemoryOrderSeqLock' = MemoryOrderSeqLock - 1
+                    /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                    /\ CurrHead' = [CurrHead EXCEPT ![self] = Head(stack[self]).CurrHead]
+                    /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                    /\ UNCHANGED << Stack, NTasksLeft, NTasksPopped, CurrHead_ >>
+
+Pop(self) == PopBegin(self) \/ UnlockPop1(self) \/ PopLoadCurrHead(self)
+                \/ UnlockPop2(self) \/ PopCASLoop(self) \/ UnlockPop3(self)
+
+Produce(self) == /\ pc[self] = "Produce"
+                 /\ IF NTasksLeft > 0
+                       THEN /\ NTasksLeft' = NTasksLeft - 1
+                            /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "Push",
+                                                                     pc        |->  "Produce",
+                                                                     CurrHead_ |->  CurrHead_[self] ] >>
+                                                                 \o stack[self]]
+                            /\ CurrHead_' = [CurrHead_ EXCEPT ![self] = defaultInitValue]
+                            /\ pc' = [pc EXCEPT ![self] = "PushBegin"]
+                       ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                            /\ UNCHANGED << NTasksLeft, stack, CurrHead_ >>
+                 /\ UNCHANGED << Stack, MemoryOrderSeqLock, NTasksPopped, 
+                                 CurrHead >>
+
+prod(self) == Produce(self)
+
+Consume(self) == /\ pc[self] = "Consume"
+                 /\ IF NTasksPopped < NTasks
+                       THEN /\ NTasksPopped' = NTasksPopped + 1
+                            /\ Len(Stack) > 1
+                            /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "Pop",
+                                                                     pc        |->  "Consume",
+                                                                     CurrHead  |->  CurrHead[self] ] >>
+                                                                 \o stack[self]]
+                            /\ CurrHead' = [CurrHead EXCEPT ![self] = defaultInitValue]
+                            /\ pc' = [pc EXCEPT ![self] = "PopBegin"]
+                       ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                            /\ UNCHANGED << NTasksPopped, stack, CurrHead >>
+                 /\ UNCHANGED << Stack, MemoryOrderSeqLock, NTasksLeft, 
+                                 CurrHead_ >>
+
+cons(self) == Consume(self)
 
 (* Allow infinite stuttering to prevent deadlock on termination. *)
 Terminating == /\ \A self \in ProcSet: pc[self] = "Done"
                /\ UNCHANGED vars
 
-Next == (\E self \in 1..9: worker(self))
+Next == (\E self \in ProcSet: Push(self) \/ Pop(self))
+           \/ (\E self \in Producers: prod(self))
+           \/ (\E self \in Consumers: cons(self))
            \/ Terminating
 
 Spec == Init /\ [][Next]_vars
@@ -192,5 +290,4 @@ Spec == Init /\ [][Next]_vars
 Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 \* END TRANSLATION 
-
-===================================
+====
